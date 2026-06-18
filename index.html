@@ -158,7 +158,7 @@
   <div class="brand">
     <div class="mark" aria-hidden="true"></div>
     <div>
-      <h1>Měřič místnosti <span id="verBadge" style="font-size:11px;font-weight:700;color:var(--amber);background:rgba(255,176,32,.12);border:1px solid rgba(255,176,32,.35);border-radius:999px;padding:2px 8px;vertical-align:middle;margin-left:6px">v1.0</span></h1>
+      <h1>Měřič místnosti <span id="verBadge" style="font-size:11px;font-weight:700;color:var(--amber);background:rgba(255,176,32,.12);border:1px solid rgba(255,176,32,.35);border-radius:999px;padding:2px 8px;vertical-align:middle;margin-left:6px">v1.1</span></h1>
       <p>AR měření kamerou • vzdálenost, plocha, výška</p>
     </div>
   </div>
@@ -455,7 +455,7 @@ const REFS = {
   a4:   { name: 'Papír A4',                dims: [0.2970, 0.2100] }  // 297 × 210 mm
 };
 const MODE_LABEL = { distance:'Vzdálenost', area:'Plocha', height:'Výška', verify:'Ověření' };
-const APP_VERSION = '1.0';
+const APP_VERSION = '1.1';
 const LS_KEY = 'mericka_mereni_v1';
 
 /* ---------------- state ---------------- */
@@ -572,42 +572,66 @@ function roundRect(x, X, Y, W, H, r) {
 /* ============================================================
    SESSION
    ============================================================ */
+function showDeviceError(title, msg) {
+  const s = $('capStatus'); s.className = 'status bad';
+  s.querySelector('b').textContent = title;
+  $('capDetail').textContent = msg ? ' — ' + msg : '';
+  $('capActions').style.display = 'flex';
+}
+
 async function startAR(asVerify) {
   if (!renderer) buildScene();
   mode = asVerify ? 'verify' : 'distance';
   resetCurrent();
 
+  // Defensive cleanup: a previous attempt may have left a session dangling
+  // (e.g. setup failed after requestSession succeeded). Without this, the
+  // browser reports "There is already an active, immersive XRSession" forever.
+  if (session) {
+    try { await session.end(); } catch (e) {}
+    session = null;
+  }
+
+  let newSession;
   try {
-    session = await navigator.xr.requestSession('immersive-ar', {
+    newSession = await navigator.xr.requestSession('immersive-ar', {
       requiredFeatures: ['hit-test', 'local'],
       optionalFeatures: ['dom-overlay', 'camera-access', 'light-estimation'],
       domOverlay: { root: overlayEl }
     });
   } catch (e) {
     const msg = e?.message || e?.name || String(e);
-    // Show the real error in the device card so user knows exactly what happened
-    const s = $('capStatus'); s.className = 'status bad';
-    s.querySelector('b').textContent = 'AR session selhala';
-    $('capDetail').textContent = ' — ' + msg;
-    $('capActions').style.display = 'flex';
+    showDeviceError('AR session selhala', msg);
     toast('Chyba: ' + msg);
     return;
   }
 
-  cameraAccess = (session.enabledFeatures || []).includes('camera-access');
-  renderer.xr.setReferenceSpaceType('local');
-  await renderer.xr.setSession(session);
+  session = newSession;
 
-  const viewer = await session.requestReferenceSpace('viewer');
-  hitTestSource = await session.requestHitTestSource({ space: viewer });
-  localSpace = await session.requestReferenceSpace('local');
+  try {
+    cameraAccess = (session.enabledFeatures || []).includes('camera-access');
+    renderer.xr.setReferenceSpaceType('local');
+    await renderer.xr.setSession(session);
 
-  if (cameraAccess) {
-    try { glBinding = new XRWebGLBinding(session, renderer.getContext()); } catch (e) { glBinding = null; cameraAccess = false; }
+    const viewer = await session.requestReferenceSpace('viewer');
+    hitTestSource = await session.requestHitTestSource({ space: viewer });
+    localSpace = await session.requestReferenceSpace('local');
+
+    if (cameraAccess) {
+      try { glBinding = new XRWebGLBinding(session, renderer.getContext()); } catch (e) { glBinding = null; cameraAccess = false; }
+    }
+
+    session.addEventListener('select', onSceneTap);
+    session.addEventListener('end', onSessionEnd);
+  } catch (e) {
+    const msg = e?.message || e?.name || String(e);
+    try { await session.end(); } catch (_) {}
+    session = null; hitTestSource = null; glBinding = null; cameraAccess = false;
+    overlayEl.classList.remove('on'); overlayEl.setAttribute('aria-hidden', 'true');
+    showDeviceError('Nastavení AR selhalo', msg);
+    toast('Chyba při nastavení AR: ' + msg);
+    return;
   }
-
-  session.addEventListener('select', onSceneTap);
-  session.addEventListener('end', onSessionEnd);
 
   // UI
   startEl.style.display = 'none';
@@ -1084,8 +1108,9 @@ function wire() {
   $('arcoreBtn').addEventListener('click', () => {
     window.open('https://play.google.com/store/apps/details?id=com.google.ar.core', '_blank');
   });
-  // Recheck after user installs/updates ARCore
-  $('recheckBtn').addEventListener('click', () => {
+  // Recheck after user installs/updates ARCore (also cleans up a stale session, if any)
+  $('recheckBtn').addEventListener('click', async () => {
+    if (session) { try { await session.end(); } catch (e) {} session = null; }
     $('capStatus').className = 'status';
     $('capStatus').querySelector('b').textContent = 'Znovu kontroluji…';
     $('capDetail').textContent = '';

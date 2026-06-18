@@ -1,4 +1,4 @@
-const CACHE = 'mericka-v1-0';
+const CACHE = 'mericka-v1-1';
 const SHELL = [
   './',
   './index.html',
