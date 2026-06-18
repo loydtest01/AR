@@ -163,6 +163,8 @@
     </div>
   </div>
 
+  <button id="installPwaBtn" class="btn ghost sm hidden">📲 Nainstalovat appku na plochu</button>
+
   <div class="card">
     <h2>Zařízení</h2>
     <div id="capStatus" class="status">
@@ -171,6 +173,10 @@
     </div>
     <div style="height:14px"></div>
     <button id="startBtn" class="btn" disabled>Spustit AR měření</button>
+    <div id="capActions" style="margin-top:10px;display:none;flex-direction:column;gap:8px">
+      <button id="arcoreBtn" class="btn ghost sm">📥 Nainstalovat / aktualizovat Služby Google Play pro AR</button>
+      <button id="recheckBtn" class="btn ghost sm">Zkusit znovu</button>
+    </div>
   </div>
 
   <div class="card">
@@ -473,28 +479,31 @@ async function checkCapability() {
   const set = (ok, title, detail) => {
     const s = $('capStatus'); s.className = 'status ' + (ok ? 'ok' : 'bad');
     s.querySelector('b').textContent = title;
-    $('capDetail').textContent = detail || '';
+    $('capDetail').textContent = detail ? ' — ' + detail : '';
     $('startBtn').disabled = !ok; $('verifyBtn').disabled = !ok;
+    $('capActions').style.display = ok ? 'none' : 'flex';
   };
   const isAndroid = /Android/i.test(navigator.userAgent);
   const isChrome  = /Chrome\//i.test(navigator.userAgent) && !/Edg|OPR|SamsungBrowser/i.test(navigator.userAgent);
 
   if (!('xr' in navigator)) {
     set(false, 'WebXR není dostupné',
-      'Tvůj prohlížeč neumí WebXR. Otevři aplikaci v Google Chrome na Androidu se zapnutými Službami Google Play pro AR (ARCore).' +
-      (!isAndroid ? ' Toto zařízení nevypadá jako Android — AR měření zde nepoběží.' : ''));
+      !isAndroid ? 'Toto není Android — AR jede jen na Androidu v Chrome.' :
+      !isChrome  ? 'Otevři appku v Google Chrome.' :
+                   'Nainstaluj Služby Google Play pro AR z Obchodu Play.');
     return;
   }
-  let supported = false;
-  try { supported = await navigator.xr.isSessionSupported('immersive-ar'); } catch (e) { supported = false; }
+  let supported = false, err = null;
+  try { supported = await navigator.xr.isSessionSupported('immersive-ar'); }
+  catch (e) { supported = false; err = e.message || String(e); }
 
   if (supported) {
-    set(true, 'Zařízení podporuje AR měření', 'Vše připraveno. Klepni na Spustit AR měření.');
+    set(true, 'Zařízení podporuje AR měření ✓', 'Vše připraveno.');
   } else {
-    let why = 'Toto zařízení nehlásí podporu immersive-AR.';
-    if (!isAndroid) why = 'Vypadá to na ne-Android zařízení. AR měření vyžaduje Android s ARCore.';
-    else if (!isChrome) why = 'Otevři appku v Google Chrome (ne v jiném prohlížeči).';
-    else why = 'Chybí podpora ARCore. Nainstaluj/aktualizuj „Služby Google Play pro AR" z Obchodu Play a zkus to znovu.';
+    const why = err ? err :
+      !isAndroid ? 'Toto není Android — AR jede jen na Androidu v Chrome.' :
+      !isChrome  ? 'Otevři appku v Google Chrome.' :
+                   'ARCore není k dispozici. Nainstaluj / aktualizuj Služby Google Play pro AR.';
     set(false, 'AR měření zde nepoběží', why);
   }
 }
@@ -574,7 +583,13 @@ async function startAR(asVerify) {
       domOverlay: { root: overlayEl }
     });
   } catch (e) {
-    toast('AR se nepodařilo spustit. Povol kameru a zkus to znovu.');
+    const msg = e?.message || e?.name || String(e);
+    // Show the real error in the device card so user knows exactly what happened
+    const s = $('capStatus'); s.className = 'status bad';
+    s.querySelector('b').textContent = 'AR session selhala';
+    $('capDetail').textContent = ' — ' + msg;
+    $('capActions').style.display = 'flex';
+    toast('Chyba: ' + msg);
     return;
   }
 
@@ -1063,6 +1078,38 @@ function wire() {
 
   $('startBtn').addEventListener('click', () => startAR(false));
   $('verifyBtn').addEventListener('click', () => startAR(true));
+
+  // ARCore install button — deep link to Play Store listing
+  $('arcoreBtn').addEventListener('click', () => {
+    window.open('https://play.google.com/store/apps/details?id=com.google.ar.core', '_blank');
+  });
+  // Recheck after user installs/updates ARCore
+  $('recheckBtn').addEventListener('click', () => {
+    $('capStatus').className = 'status';
+    $('capStatus').querySelector('b').textContent = 'Znovu kontroluji…';
+    $('capDetail').textContent = '';
+    $('capActions').style.display = 'none';
+    checkCapability();
+  });
+
+  // PWA install button — shown when browser fires beforeinstallprompt
+  let deferredInstall = null;
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstall = e;
+    $('installPwaBtn').classList.remove('hidden');
+  });
+  window.addEventListener('appinstalled', () => {
+    $('installPwaBtn').classList.add('hidden');
+    deferredInstall = null;
+    toast('Appka nainstalována na plochu ✓');
+  });
+  $('installPwaBtn').addEventListener('click', async () => {
+    if (!deferredInstall) { toast('Instalace není dostupná — použij ⋮ → Přidat na plochu v Chrome'); return; }
+    deferredInstall.prompt();
+    const { outcome } = await deferredInstall.userChoice;
+    if (outcome === 'accepted') { deferredInstall = null; $('installPwaBtn').classList.add('hidden'); }
+  });
 
   $('exportBtn').addEventListener('click', () => {
     download(`mereni-mistnosti-${stamp()}.html`, buildReportHTML(), 'text/html');
