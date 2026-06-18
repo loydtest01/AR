@@ -158,7 +158,7 @@
   <div class="brand">
     <div class="mark" aria-hidden="true"></div>
     <div>
-      <h1>Měřič místnosti</h1>
+      <h1>Měřič místnosti <span id="verBadge" style="font-size:11px;font-weight:700;color:var(--amber);background:rgba(255,176,32,.12);border:1px solid rgba(255,176,32,.35);border-radius:999px;padding:2px 8px;vertical-align:middle;margin-left:6px">v1.0</span></h1>
       <p>AR měření kamerou • vzdálenost, plocha, výška</p>
     </div>
   </div>
@@ -455,6 +455,7 @@ const REFS = {
   a4:   { name: 'Papír A4',                dims: [0.2970, 0.2100] }  // 297 × 210 mm
 };
 const MODE_LABEL = { distance:'Vzdálenost', area:'Plocha', height:'Výška', verify:'Ověření' };
+const APP_VERSION = '1.0';
 const LS_KEY = 'mericka_mereni_v1';
 
 /* ---------------- state ---------------- */
@@ -1039,7 +1040,7 @@ function buildReportHTML() {
     <header><h1>Report měření místnosti</h1><p>${date} • ${measurements.length} měření • Měřič místnosti (AR)</p></header>
     ${viewerSection}
     ${cards || '<p style="color:#97a1ad">Žádná měření.</p>'}
-    <footer>Vygenerováno lokálně v telefonu. Hodnoty jsou orientační (AR tracking).<br>3D kostra vyžaduje připojení k internetu (načítá 3D knihovnu).</footer>
+    <footer>Vygenerováno lokálně v telefonu • Měřič místnosti v${APP_VERSION}. Hodnoty jsou orientační (AR tracking).<br>3D kostra vyžaduje připojení k internetu (načítá 3D knihovnu).</footer>
   </div></body></html>`;
 }
 function download(filename, content, type) {
